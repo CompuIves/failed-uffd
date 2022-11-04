@@ -1,0 +1,18 @@
+[package]
+name = "uffd-vm-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+crossbeam-channel = "0.5.6"
+nix = "0.25.0"
+rand = "0.8.5"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+userfaultfd = { git = "https://github.com/codesandbox/userfaultfd-rs.git", rev = "3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5", features = [
+  "linux5_7",
+] }
+
+

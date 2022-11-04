@@ -1,0 +1,2 @@
+[env]
+LINUX_HEADERS="/usr/src/linux-headers-5.19.13-051913"
