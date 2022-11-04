@@ -1,0 +1,1 @@
+while cargo run --release &> output-test.log; do echo succeeded; done
