@@ -256,6 +256,16 @@ fn read_randomly(idx: u16, addr: u64, base_offset: u64, buffer: &Vec<u8>) {
 
         let wrong_index = read.iter().enumerate().find(|(i, &b)| b != slice[*i]);
         if let Some((index, value)) = wrong_index {
+            error!(
+                "[{}] could not read from relative position {}, wrong val: {}, len: {}, page: {}, two pages: {}",
+                idx,
+                index,
+                value,
+                len,
+                (base_offset as usize + offset) / 4096,
+                is_two_pages
+            );
+
             panic!(
                 "[{}] could not read from relative position {}, wrong val: {}, len: {}, page: {}, two pages: {}",
                 idx,
