@@ -11,8 +11,6 @@ nix = "0.25.0"
 rand = "0.8.5"
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
-userfaultfd = { git = "https://github.com/codesandbox/userfaultfd-rs.git", rev = "3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5", features = [
+userfaultfd = { git = "https://github.com/codesandbox/userfaultfd-rs.git", rev = "17f8fe94dac52412c2cd8fc812daafead8646828", features = [
   "linux5_7",
 ] }
-
-

@@ -451,7 +451,7 @@ checksum = "6ceab39d59e4c9499d4e5a8ee0e2735b891bb7308ac83dfb4e80cad195c9f6f3"
 [[package]]
 name = "userfaultfd"
 version = "0.5.0"
-source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5#3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5"
+source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=17f8fe94dac52412c2cd8fc812daafead8646828#17f8fe94dac52412c2cd8fc812daafead8646828"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -464,7 +464,7 @@ dependencies = [
 [[package]]
 name = "userfaultfd-sys"
 version = "0.4.2"
-source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5#3bafb90a85d8f2aa664dd391a5ae63ad1f43e3f5"
+source = "git+https://github.com/codesandbox/userfaultfd-rs.git?rev=17f8fe94dac52412c2cd8fc812daafead8646828#17f8fe94dac52412c2cd8fc812daafead8646828"
 dependencies = [
  "bindgen",
  "cc",
