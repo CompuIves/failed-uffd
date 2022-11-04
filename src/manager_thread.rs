@@ -71,6 +71,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             .write_protect(parent_vm.uffd_address as _, parent_vm.memfd_size as _)
                             .unwrap();
 
+                        // Now clone the page source from the parent for this VM
                         page_sources.insert(
                             vm.vm_idx,
                             page_sources.get(&parent_vm.vm_idx).unwrap().clone(),
@@ -91,11 +92,13 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                         let vm_backends = page_sources.get_mut(&vm_idx).unwrap();
                         let backend = vm_backends[page_idx as usize];
 
+                        // Find the backend that we should populate from
                         let is_own_backend = match backend {
                             VmBackend::Zero => false,
                             VmBackend::Vm(backend_vm_idx) => backend_vm_idx == vm_idx,
                         };
                         if is_own_backend {
+                            // If this page is our own backend, we just wake the process
                             trace!("[{vm_idx}] page ({page_idx}) is own backend, waking...");
                             vm.uffd_handler.wake(event.address as _, 4096).unwrap();
                             continue;
@@ -129,7 +132,8 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             }
                         }
 
-                        // Mark the source of this page now as the current VM.
+                        // Mark the source of this page now as the current VM. This is important because
+                        // clones will then know to load from this VM.
                         vm_backends[page_idx as usize] = VmBackend::Vm(vm_idx);
                     } else {
                         // Write protected fault
