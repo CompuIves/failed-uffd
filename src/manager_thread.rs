@@ -87,7 +87,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                 UffdMessage::UffdEvent { vm_idx, event } => {
                     let vm = vms.get(&vm_idx).expect("vm not found");
 
-                    if event.kind == FaultKind::Missing {
+                    if event.rw == ReadWrite::Read || event.kind == FaultKind::Missing {
                         let page_idx = (event.address - vm.uffd_address) / 4096;
                         trace!("[{vm_idx}] handling missing fault on page ({page_idx})");
                         let copied = {

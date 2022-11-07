@@ -95,7 +95,7 @@ fn arm_uffd(
     uffd.register_with_mode(
         mapping_a as _,
         size as _,
-        RegisterMode::WRITE_PROTECT | RegisterMode::MISSING | RegisterMode::MODE_MINOR,
+        RegisterMode::WRITE_PROTECT | RegisterMode::MISSING,
     )
     .unwrap();
 
