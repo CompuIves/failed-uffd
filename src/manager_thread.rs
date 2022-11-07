@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 use crossbeam_channel::Sender;
 use tracing::{debug, trace};
@@ -51,6 +51,8 @@ pub enum VmBackend {
 pub(crate) fn start_thread() -> Sender<UffdMessage> {
     let (tx, rx) = crossbeam_channel::unbounded();
 
+    const MAX_PAGES_RW: usize = 1024;
+
     // Spawn a thread that listens for new events that can come in, either for a
     // new page fault or us adding new VMs.
     std::thread::spawn(move || {
@@ -88,53 +90,85 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                     if event.kind == FaultKind::Missing {
                         let page_idx = (event.address - vm.uffd_address) / 4096;
                         trace!("[{vm_idx}] handling missing fault on page ({page_idx})");
+                        let copied = {
+                            let vm_sources = page_sources.get(&vm_idx).unwrap();
+                            let backend = vm_sources[page_idx as usize];
 
-                        let vm_backends = page_sources.get_mut(&vm_idx).unwrap();
-                        let backend = vm_backends[page_idx as usize];
+                            // Find the backend that we should populate from
+                            let is_own_backend = match backend {
+                                VmBackend::Zero => false,
+                                VmBackend::Vm(backend_vm_idx) => backend_vm_idx == vm_idx,
+                            };
+                            if is_own_backend {
+                                // If this page is our own backend, we just wake the process
+                                trace!("[{vm_idx}] page ({page_idx}) is own backend, waking...");
+                                vm.uffd_handler.wake(event.address as _, 4096).unwrap();
+                                continue;
+                            };
 
-                        // Find the backend that we should populate from
-                        let is_own_backend = match backend {
-                            VmBackend::Zero => false,
-                            VmBackend::Vm(backend_vm_idx) => backend_vm_idx == vm_idx,
-                        };
-                        if is_own_backend {
-                            // If this page is our own backend, we just wake the process
-                            trace!("[{vm_idx}] page ({page_idx}) is own backend, waking...");
-                            vm.uffd_handler.wake(event.address as _, 4096).unwrap();
-                            continue;
-                        };
-
-                        match backend {
-                            VmBackend::Zero => unsafe {
-                                trace!("[{vm_idx}] zeroing page ({page_idx})");
-                                vm.uffd_handler
-                                    .zeropage(event.address as _, 4096, true)
-                                    .unwrap();
-                            },
-                            VmBackend::Vm(parent_vm_idx) => {
-                                trace!(
-                                    "[{vm_idx}] copying page ({page_idx}) from [{parent_vm_idx}]"
-                                );
-                                let relative_address = page_idx * 4096;
-                                let parent_vm = vms.get(&parent_vm_idx).unwrap();
-
-                                unsafe {
-                                    vm.uffd_handler
-                                        .copy(
-                                            (parent_vm.memfd_address + relative_address) as _,
-                                            (vm.uffd_address + relative_address) as _,
-                                            4096,
-                                            true,
-                                            false,
+                            match backend {
+                                VmBackend::Zero => unsafe {
+                                    let max_pages_to_copy =
+                                        get_max_range(vm_sources, page_idx as usize, MAX_PAGES_RW);
+                                    trace!(
+                                        "[{vm_idx}] zeroing pages {}",
+                                        print_pages_pretty(
+                                            page_idx..page_idx + max_pages_to_copy as u64
                                         )
-                                        .unwrap();
+                                    );
+                                    vm.uffd_handler
+                                        .zeropage(
+                                            event.address as _,
+                                            max_pages_to_copy * 4096,
+                                            true,
+                                        )
+                                        .unwrap()
+                                },
+                                VmBackend::Vm(parent_vm_idx) => {
+                                    let relative_address = page_idx * 4096;
+                                    let parent_vm = vms.get(&parent_vm_idx).unwrap();
+
+                                    let max_pages_to_copy_source =
+                                        get_max_range(vm_sources, page_idx as usize, MAX_PAGES_RW);
+                                    let max_pages_to_copy_dest = get_max_range(
+                                        page_sources.get(&parent_vm_idx).unwrap(),
+                                        page_idx as usize,
+                                        MAX_PAGES_RW,
+                                    );
+
+                                    let max_pages_to_copy = std::cmp::min(
+                                        max_pages_to_copy_source,
+                                        max_pages_to_copy_dest,
+                                    );
+
+                                    trace!(
+                                        "[{vm_idx}] copying pages {} from [{parent_vm_idx}]",
+                                        print_pages_pretty(
+                                            page_idx..page_idx + max_pages_to_copy as u64
+                                        )
+                                    );
+                                    unsafe {
+                                        vm.uffd_handler
+                                            .copy(
+                                                (parent_vm.memfd_address + relative_address) as _,
+                                                (vm.uffd_address + relative_address) as _,
+                                                max_pages_to_copy * 4096,
+                                                true,
+                                                false,
+                                            )
+                                            .unwrap()
+                                    }
                                 }
                             }
-                        }
+                        };
 
-                        // Mark the source of this page now as the current VM. This is important because
-                        // clones will then know to load from this VM.
-                        vm_backends[page_idx as usize] = VmBackend::Vm(vm_idx);
+                        let vm_sources = page_sources.get_mut(&vm_idx).unwrap();
+
+                        for i in 0..(copied / 4096) {
+                            // Mark the source of the copied pages now as the current VM. This is important because
+                            // clones will then know to load from this VM.
+                            vm_sources[page_idx as usize + i] = VmBackend::Vm(vm_idx);
+                        }
                     } else {
                         // Write protected fault
                         let page_idx = (event.address - vm.uffd_address) / 4096;
@@ -142,6 +176,11 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
 
                         trace!("[{vm_idx}] handling write protection fault on page ({page_idx})");
 
+                        let max_pages_to_copy_source = get_max_range(
+                            page_sources.get(&vm_idx).unwrap(),
+                            page_idx as usize,
+                            MAX_PAGES_RW,
+                        );
                         // Copy the contents immediately to every VM that has this VM as source for
                         // this page.
                         let min_bytes_copied = page_sources
@@ -152,14 +191,27 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             })
                             .map(|(child_vm_idx, child_sources)| {
                                 let child_vm = vms.get(child_vm_idx).unwrap();
-                                trace!("[{vm_idx}] copying page ({page_idx}) to [{child_vm_idx}]");
+
+                                let max_pages_to_copy_dest =
+                                    get_max_range(child_sources, page_idx as usize, MAX_PAGES_RW);
+
+                                let max_pages_to_copy =
+                                    std::cmp::min(max_pages_to_copy_source, max_pages_to_copy_dest);
+
+                                trace!(
+                                    "[{vm_idx}] copying pages ({}) to [{child_vm_idx}]",
+                                    print_pages_pretty(
+                                        page_idx..page_idx + max_pages_to_copy as u64
+                                    )
+                                );
+
                                 let bytes_copied = unsafe {
                                     child_vm
                                         .uffd_handler
                                         .copy(
                                             (vm.memfd_address + relative_addr) as _,
                                             (child_vm.uffd_address + relative_addr) as _,
-                                            4096,
+                                            max_pages_to_copy * 4096,
                                             false,
                                             false,
                                         )
@@ -173,7 +225,10 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             .min()
                             .unwrap_or(4096);
 
-                        debug!("[{vm_idx}] removing write protection for page ({page_idx})");
+                        debug!(
+                            "[{vm_idx}] removing write protection for pages: {}",
+                            print_pages_pretty(page_idx..page_idx + min_bytes_copied as u64 / 4096)
+                        );
                         vm.uffd_handler
                             .remove_write_protection(event.address as _, min_bytes_copied, true)
                             .unwrap();
@@ -186,4 +241,31 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
     });
 
     tx
+}
+
+/// Finds how long this specific source exists after `index`.
+fn get_max_range(page_sources: &[VmBackend], index: usize, limit: usize) -> usize {
+    let checked_source = page_sources[index];
+
+    let mut max_range = 0;
+    for i in 0..limit {
+        if i > limit {
+            break;
+        }
+        if !matches!(page_sources.get(index + i), Some(source) if *source == checked_source) {
+            break;
+        }
+
+        max_range += 1;
+    }
+
+    max_range
+}
+
+fn print_pages_pretty(range: Range<u64>) -> String {
+    range
+        .into_iter()
+        .map(|page_idx| format!("({page_idx})"))
+        .collect::<Vec<_>>()
+        .join(",")
 }

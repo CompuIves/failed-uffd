@@ -1,6 +1,7 @@
 mod manager_thread;
 
 use std::{
+    env::args,
     ffi::CString,
     fs::File,
     os::unix::prelude::{AsRawFd, FromRawFd},
@@ -154,7 +155,8 @@ fn main() {
         .try_init()
         .unwrap();
 
-    let size = 256 * 1024 * 1024;
+    let size = 256 * 1024 * 1024; // 256MiB
+    let buffer_1 = vec![1; size as usize];
 
     info!("spawning pf handler thread");
     let sender = manager_thread::start_thread();
@@ -165,7 +167,7 @@ fn main() {
 
     info!("writing a ton of data to VM 0");
     // First initialise all memory for VM 0
-    write_to_pointer(mapping_0_a, vec![1; size as usize]);
+    write_to_pointer(mapping_0_a, &buffer_1);
 
     // Then create a new VM (1) which is a child of VM 0
     info!("initializing VM 1 as child of 0");
@@ -179,7 +181,7 @@ fn main() {
     }));
 
     threads.push(std::thread::spawn(move || {
-        read_randomly(1, mapping_1_a, 0, &vec![1; size as usize]);
+        read_randomly(1, mapping_1_a, 0, &buffer_1);
     }));
 
     for thread in threads {
@@ -214,7 +216,7 @@ fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, buffer: Vec<u8>) {
         );
 
         let slice = &buffer[offset..offset + len];
-        write_to_pointer(addr + offset as u64, slice.to_vec());
+        write_to_pointer(addr + offset as u64, slice);
 
         debug!(
             "[{}] WRITE DONE: {} {:?} {:?} pages: {}",
@@ -247,10 +249,10 @@ fn read_randomly(idx: u16, addr: u64, base_offset: u64, buffer: &Vec<u8>) {
         );
         let slice = &buffer[offset..offset + len];
         let read = read_from_pointer(addr + offset as u64, len);
-        debug!(
-            "[{}] READ DONE: offset: {}, len: {}, pages: {}",
-            idx, offset, len, pages
-        );
+        // debug!(
+        //     "[{}] READ DONE: offset: {}, len: {}, pages: {}",
+        //     idx, offset, len, pages
+        // );
 
         let is_two_pages = (offset % 4096) + len > 4096;
 
@@ -289,7 +291,7 @@ fn read_from_pointer(addr: u64, size: usize) -> Vec<u8> {
     buf
 }
 
-fn write_to_pointer(addr: u64, buf: Vec<u8>) {
+fn write_to_pointer(addr: u64, buf: &[u8]) {
     unsafe {
         copy_nonoverlapping(buf.as_ptr(), addr as *mut u8, buf.len());
     }

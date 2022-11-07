@@ -1,1 +1,1 @@
-while cargo run --release &> output-test.log; do echo succeeded; done
+cargo build --release && while ./target/release/uffd-vm-test &> output-test.log; do echo succeeded; done
