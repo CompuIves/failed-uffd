@@ -8,7 +8,7 @@ use std::{
     ptr::{copy_nonoverlapping, null_mut},
 };
 
-use crossbeam_channel::Sender;
+use crossbeam_channel::{bounded, Sender};
 use manager_thread::UffdMessage;
 use nix::{
     libc::{self, memfd_create},
@@ -101,17 +101,21 @@ fn arm_uffd(
 
     let copied_uffd = unsafe { Uffd::from_raw_fd(uffd.as_raw_fd()) };
 
+    let (tx, rx) = bounded(0);
     trace!("[{vm_idx}] sending vm add event");
     // Send the new UFFD to the manager thread
     sender
-        .send(UffdMessage::AddVm(manager_thread::Vm {
-            vm_idx,
-            uffd_address: mapping_a,
-            memfd_address: mapping_b,
-            memfd_size: size,
-            uffd_handler: copied_uffd,
-            source_vm_idx,
-        }))
+        .send(UffdMessage::AddVm(
+            manager_thread::Vm {
+                vm_idx,
+                uffd_address: mapping_a,
+                memfd_address: mapping_b,
+                memfd_size: size,
+                uffd_handler: copied_uffd,
+                source_vm_idx,
+            },
+            tx,
+        ))
         .unwrap();
 
     trace!("[{vm_idx}] spawning uffd thread");
@@ -143,6 +147,9 @@ fn arm_uffd(
             }
         }
     });
+
+    // Wait for process to be handled
+    rx.recv().unwrap();
 }
 
 fn main() {

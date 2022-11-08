@@ -37,7 +37,7 @@ impl From<userfaultfd::Event> for UffdEvent {
 
 pub(crate) enum UffdMessage {
     /// Adds a VM to the list of VMs that are being tracked by the manager thread.
-    AddVm(Vm),
+    AddVm(Vm, Sender<()>),
     /// UFFD event.
     UffdEvent { vm_idx: u16, event: UffdEvent },
 }
@@ -49,7 +49,7 @@ pub enum VmBackend {
 }
 
 pub(crate) fn start_thread() -> Sender<UffdMessage> {
-    let (tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = crossbeam_channel::bounded(0);
 
     const MAX_PAGES_RW: usize = 1024;
 
@@ -63,7 +63,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
             let event = rx.recv().unwrap();
 
             match event {
-                UffdMessage::AddVm(vm) => {
+                UffdMessage::AddVm(vm, ready_sender) => {
                     if let Some(parent_vm) = vm.source_vm_idx {
                         let parent_vm: &Vm = vms.get(&parent_vm).unwrap();
 
@@ -86,6 +86,9 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                     }
 
                     vms.insert(vm.vm_idx, vm);
+
+                    // Send back that the VM is initialised
+                    ready_sender.send(()).unwrap();
                 }
                 UffdMessage::UffdEvent { vm_idx, event } => {
                     let vm = vms.get(&vm_idx).expect("vm not found");
