@@ -148,7 +148,7 @@ fn arm_uffd(
         }
     });
 
-    // Wait for process to be handled
+    // Wait for a confirmation that the uffd is armed
     rx.recv().unwrap();
 }
 

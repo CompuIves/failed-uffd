@@ -72,6 +72,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             .uffd_handler
                             .write_protect(parent_vm.uffd_address as _, parent_vm.memfd_size as _)
                             .unwrap();
+                        debug!("[{}] write protected full memory range", parent_vm.vm_idx);
 
                         // Now clone the page source from the parent for this VM
                         page_sources.insert(
