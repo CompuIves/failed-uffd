@@ -293,8 +293,9 @@ fn read_randomly(idx: u16, addr: u64, base_offset: u64, len: usize, expected_byt
         let wrong_index = read.iter().enumerate().find(|(i, &b)| b != slice[*i]);
         if let Some((index, value)) = wrong_index {
             error!(
-                "[{}] could not read from relative position {}, wrong val: {}, len: {}, page: {}, two pages: {}",
+                "[{}] could not read from base addr {} relative position {}, wrong val: {}, len: {}, page: {}, two pages: {}",
                 idx,
+                addr,
                 index,
                 value,
                 len,
@@ -303,8 +304,9 @@ fn read_randomly(idx: u16, addr: u64, base_offset: u64, len: usize, expected_byt
             );
 
             panic!(
-                "[{}] could not read from relative position {}, wrong val: {}, len: {}, page: {}, two pages: {}",
+                "[{}] could not read from base addr {} relative position {}, wrong val: {}, len: {}, page: {}, two pages: {}",
                 idx,
+                addr,
                 index,
                 value,
                 len,
