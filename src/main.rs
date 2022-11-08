@@ -209,6 +209,8 @@ fn main() {
     for thread in threads {
         thread.join().expect("thread join failed");
     }
+
+    info!("done!");
 }
 
 fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, len: usize, byte: u8) {
