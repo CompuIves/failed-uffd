@@ -222,8 +222,7 @@ fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, len: usize, byte: u8
             pages
         );
 
-        let slice = vec![byte; len];
-        write_to_pointer(addr + offset as u64, &slice);
+        unsafe { libc::memset((addr + offset as u64) as _, byte as _, len) };
 
         debug!(
             "[{}] WRITE DONE: {} {:?} {:?} pages: {}",
