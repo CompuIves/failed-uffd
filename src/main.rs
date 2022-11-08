@@ -251,7 +251,7 @@ fn read_randomly(idx: u16, addr: u64, base_offset: u64, len: usize, expected_byt
         let len = std::cmp::min(len - offset, rng.gen_range(1..4096));
         // let len = 4096;
 
-        let start_page = base_offset + offset as u64;
+        let start_page = (base_offset + offset as u64) / 4096;
         let pages = (start_page..=(start_page + (len as u64 / 4096)))
             .map(|n| format!("({})", n))
             .collect::<Vec<_>>()
