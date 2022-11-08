@@ -11,20 +11,26 @@ use std::{
 use crossbeam_channel::{bounded, Sender};
 use manager_thread::UffdMessage;
 use nix::{
-    libc::{self, memfd_create},
+    libc,
     poll::{poll, PollFd, PollFlags},
+    sys::{
+        memfd::{self, MemFdCreateFlag},
+        mman::{self, ProtFlags},
+    },
 };
 use rand::Rng;
 use tracing::{debug, error, info, metadata::LevelFilter, trace, warn};
 use userfaultfd::{FeatureFlags, RegisterMode, Uffd, UffdBuilder};
 
 fn create_memfd(size: u64) -> File {
-    let memfd = unsafe {
-        let name = CString::new("memory-snap").unwrap();
-        memfd_create(name.as_ptr() as _, 0)
+    let memfd = {
+        let name = CString::new("memory-snap").expect("failed to create memory-snap CString");
+
+        memfd::memfd_create(&name, MemFdCreateFlag::empty()).expect("failed to create memfd")
     };
     let file = unsafe { File::from_raw_fd(memfd) };
-    file.set_len(size).unwrap();
+    file.set_len(size)
+        .expect("failed to set size of memfd file");
 
     file
 }
@@ -38,25 +44,27 @@ fn create_mappings(size: u64) -> (u64, u64) {
     let memfd = create_memfd(size);
 
     let a = unsafe {
-        libc::mmap(
+        mman::mmap(
             null_mut(),
             size as _,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_SHARED,
+            ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+            mman::MapFlags::MAP_SHARED,
             memfd.as_raw_fd(),
             0,
         )
+        .expect("failed to create mapping A")
     };
 
     let b = unsafe {
-        libc::mmap(
+        mman::mmap(
             null_mut(),
             size as _,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_SHARED,
+            ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+            mman::MapFlags::MAP_SHARED,
             memfd.as_raw_fd(),
             0,
         )
+        .expect("failed to create mapping B")
     };
 
     (a as u64, b as u64)
@@ -88,7 +96,7 @@ fn arm_uffd(
         .non_blocking(true)
         .user_mode_only(false)
         .create()
-        .unwrap();
+        .expect("failed to create uffd");
 
     trace!("[{vm_idx}] registering uffd");
     // Register the mapping
@@ -97,7 +105,7 @@ fn arm_uffd(
         size as _,
         RegisterMode::WRITE_PROTECT | RegisterMode::MISSING,
     )
-    .unwrap();
+    .expect("failed to register uffd with mdoes");
 
     let copied_uffd = unsafe { Uffd::from_raw_fd(uffd.as_raw_fd()) };
 
@@ -116,7 +124,7 @@ fn arm_uffd(
             },
             tx,
         ))
-        .unwrap();
+        .expect("failed to send message to manager thread");
 
     trace!("[{vm_idx}] spawning uffd thread");
     // Spawn a thread that listens for new events that can come in
@@ -125,8 +133,8 @@ fn arm_uffd(
         let pollfd = PollFd::new(uffd.as_raw_fd(), PollFlags::POLLIN);
         loop {
             // Wait for fd to become available
-            poll(&mut [pollfd], -1).unwrap();
-            let revents = pollfd.revents().unwrap();
+            poll(&mut [pollfd], -1).expect("failed to poll uffd");
+            let revents = pollfd.revents().expect("failed to get revents");
 
             if revents.contains(PollFlags::POLLERR) {
                 error!("poll returned POLLERR");
@@ -141,7 +149,7 @@ fn arm_uffd(
                         vm_idx,
                         event: event.into(),
                     })
-                    .unwrap();
+                    .expect("failed to send message to manager thread");
             } else {
                 warn!("uffd event was None");
             }
@@ -149,7 +157,7 @@ fn arm_uffd(
     });
 
     // Wait for a confirmation that the uffd is armed
-    rx.recv().unwrap();
+    rx.recv().expect("failed to send message to manager thread");
 }
 
 fn main() {
@@ -199,7 +207,7 @@ fn main() {
     }));
 
     for thread in threads {
-        thread.join().unwrap();
+        thread.join().expect("thread join failed");
     }
 }
 

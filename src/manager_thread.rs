@@ -60,24 +60,27 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
         let mut page_sources: HashMap<u16, Vec<VmBackend>> = HashMap::new();
 
         loop {
-            let event = rx.recv().unwrap();
+            let event = rx.recv().expect("failed to recv message");
 
             match event {
                 UffdMessage::AddVm(vm, ready_sender) => {
                     if let Some(parent_vm) = vm.source_vm_idx {
-                        let parent_vm: &Vm = vms.get(&parent_vm).unwrap();
+                        let parent_vm: &Vm = vms.get(&parent_vm).expect("parent vm not found");
 
                         debug!("[{}] write protecting full memory range", parent_vm.vm_idx);
                         parent_vm
                             .uffd_handler
                             .write_protect(parent_vm.uffd_address as _, parent_vm.memfd_size as _)
-                            .unwrap();
+                            .expect("write protecting failed");
                         debug!("[{}] write protected full memory range", parent_vm.vm_idx);
 
                         // Now clone the page source from the parent for this VM
                         page_sources.insert(
                             vm.vm_idx,
-                            page_sources.get(&parent_vm.vm_idx).unwrap().clone(),
+                            page_sources
+                                .get(&parent_vm.vm_idx)
+                                .expect("failed to get page source")
+                                .clone(),
                         );
                     } else {
                         page_sources.insert(
@@ -89,7 +92,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                     vms.insert(vm.vm_idx, vm);
 
                     // Send back that the VM is initialised
-                    ready_sender.send(()).unwrap();
+                    ready_sender.send(()).expect("failed to send ready signal");
                 }
                 UffdMessage::UffdEvent { vm_idx, event } => {
                     let vm = vms.get(&vm_idx).expect("vm not found");
@@ -98,7 +101,8 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                         let page_idx = (event.address - vm.uffd_address) / 4096;
                         trace!("[{vm_idx}] handling missing fault on page ({page_idx})");
                         let copied = {
-                            let vm_sources = page_sources.get(&vm_idx).unwrap();
+                            let vm_sources =
+                                page_sources.get(&vm_idx).expect("failed to get vm sources");
                             let backend = vm_sources[page_idx as usize];
 
                             // Find the backend that we should populate from
@@ -109,7 +113,9 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             if is_own_backend {
                                 // If this page is our own backend, we just wake the process
                                 trace!("[{vm_idx}] page ({page_idx}) is own backend, waking...");
-                                vm.uffd_handler.wake(event.address as _, 4096).unwrap();
+                                vm.uffd_handler
+                                    .wake(event.address as _, 4096)
+                                    .expect("failed to wake range");
                                 continue;
                             };
 
@@ -129,16 +135,19 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                                             max_pages_to_copy * 4096,
                                             true,
                                         )
-                                        .unwrap()
+                                        .expect("failed to zero page")
                                 },
                                 VmBackend::Vm(parent_vm_idx) => {
                                     let relative_address = page_idx * 4096;
-                                    let parent_vm = vms.get(&parent_vm_idx).unwrap();
+                                    let parent_vm =
+                                        vms.get(&parent_vm_idx).expect("failed to get vm");
 
                                     let max_pages_to_copy_source =
                                         get_max_range(vm_sources, page_idx as usize, MAX_PAGES_RW);
                                     let max_pages_to_copy_dest = get_max_range(
-                                        page_sources.get(&parent_vm_idx).unwrap(),
+                                        page_sources
+                                            .get(&parent_vm_idx)
+                                            .expect("failed to get page sources"),
                                         page_idx as usize,
                                         MAX_PAGES_RW,
                                     );
@@ -163,13 +172,15 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                                                 true,
                                                 false,
                                             )
-                                            .unwrap()
+                                            .expect("failed to copy bytes using uffd handler")
                                     }
                                 }
                             }
                         };
 
-                        let vm_sources = page_sources.get_mut(&vm_idx).unwrap();
+                        let vm_sources = page_sources
+                            .get_mut(&vm_idx)
+                            .expect("failed to get page sources");
 
                         for i in 0..(copied / 4096) {
                             // Mark the source of the copied pages now as the current VM. This is important because
@@ -184,7 +195,9 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                         trace!("[{vm_idx}] handling write protection fault on page ({page_idx})");
 
                         let max_pages_to_copy_source = get_max_range(
-                            page_sources.get(&vm_idx).unwrap(),
+                            page_sources
+                                .get(&vm_idx)
+                                .expect("failed to get page sources"),
                             page_idx as usize,
                             MAX_PAGES_RW,
                         );
@@ -197,7 +210,8 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                                     && v[page_idx as usize] == VmBackend::Vm(vm_idx)
                             })
                             .map(|(child_vm_idx, child_sources)| {
-                                let child_vm = vms.get(child_vm_idx).unwrap();
+                                let child_vm =
+                                    vms.get(child_vm_idx).expect("failed to get child vm");
 
                                 let max_pages_to_copy_dest =
                                     get_max_range(child_sources, page_idx as usize, MAX_PAGES_RW);
@@ -222,7 +236,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                                             false,
                                             false,
                                         )
-                                        .unwrap()
+                                        .expect("failed to copy bytes to child using uffd handler")
                                 };
 
                                 child_sources[page_idx as usize] = VmBackend::Vm(*child_vm_idx);
@@ -238,7 +252,7 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                         );
                         vm.uffd_handler
                             .remove_write_protection(event.address as _, min_bytes_copied, true)
-                            .unwrap();
+                            .expect("failed to remove write protection");
                     }
                 }
             };
