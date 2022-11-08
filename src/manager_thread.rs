@@ -79,7 +79,10 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                             page_sources.get(&parent_vm.vm_idx).unwrap().clone(),
                         );
                     } else {
-                        page_sources.insert(vm.vm_idx, vec![VmBackend::Zero; vm.memfd_size as _]);
+                        page_sources.insert(
+                            vm.vm_idx,
+                            vec![VmBackend::Zero; (vm.memfd_size / 4096) as _],
+                        );
                     }
 
                     vms.insert(vm.vm_idx, vm);
@@ -249,9 +252,6 @@ fn get_max_range(page_sources: &[VmBackend], index: usize, limit: usize) -> usiz
 
     let mut max_range = 0;
     for i in 0..limit {
-        if i > limit {
-            break;
-        }
         if !matches!(page_sources.get(index + i), Some(source) if *source == checked_source) {
             break;
         }

@@ -155,10 +155,16 @@ fn main() {
         .try_init()
         .unwrap();
 
-    let size = 256 * 1024 * 1024; // 256MiB
+    let size = args()
+        .nth(1)
+        .unwrap_or_else(|| "256".into())
+        .parse::<u64>()
+        .unwrap()
+        * 1024
+        * 1024; // 256MiB
     let buffer_1 = vec![1; size as usize];
 
-    info!("spawning pf handler thread");
+    info!("spawning pf handler thread for mem size of {size} bytes");
     let sender = manager_thread::start_thread();
 
     info!("initializing VM 0");
