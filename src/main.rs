@@ -162,7 +162,6 @@ fn main() {
         .unwrap()
         * 1024
         * 1024; // 256MiB
-    let buffer_1 = vec![1; size as usize];
 
     info!("spawning pf handler thread for mem size of {size} bytes");
     let sender = manager_thread::start_thread();
@@ -173,7 +172,9 @@ fn main() {
 
     info!("writing a ton of data to VM 0");
     // First initialise all memory for VM 0
-    write_to_pointer(mapping_0_a, &buffer_1);
+    unsafe {
+        libc::memset(mapping_0_a as _, 1, size as _);
+    }
 
     // Then create a new VM (1) which is a child of VM 0
     info!("initializing VM 1 as child of 0");
@@ -183,11 +184,11 @@ fn main() {
     let mut threads = vec![];
     // Finally, simultaneously write to VM 0 and read from VM 1
     threads.push(std::thread::spawn(move || {
-        write_randomly(0, mapping_0_a, 0, vec![2; size as usize]);
+        write_randomly(0, mapping_0_a, 0, size as _, 2);
     }));
 
     threads.push(std::thread::spawn(move || {
-        read_randomly(1, mapping_1_a, 0, &buffer_1);
+        read_randomly(1, mapping_1_a, 0, size as _, 1);
     }));
 
     for thread in threads {
@@ -195,12 +196,12 @@ fn main() {
     }
 }
 
-fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, buffer: Vec<u8>) {
+fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, len: usize, byte: u8) {
     let mut rng = rand::thread_rng();
 
     let mut offset = 0;
-    while offset < buffer.len() {
-        let len = std::cmp::min(buffer.len() - offset, rng.gen_range(1..(4096 * 2)));
+    while offset < len {
+        let len = std::cmp::min(len - offset, rng.gen_range(1..(4096 * 2)));
         if len == 0 {
             offset += len;
 
@@ -221,8 +222,8 @@ fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, buffer: Vec<u8>) {
             pages
         );
 
-        let slice = &buffer[offset..offset + len];
-        write_to_pointer(addr + offset as u64, slice);
+        let slice = vec![byte; len];
+        write_to_pointer(addr + offset as u64, &slice);
 
         debug!(
             "[{}] WRITE DONE: {} {:?} {:?} pages: {}",
@@ -236,12 +237,12 @@ fn write_randomly(vm_idx: u16, addr: u64, base_offset: u64, buffer: Vec<u8>) {
     }
 }
 
-fn read_randomly(idx: u16, addr: u64, base_offset: u64, buffer: &Vec<u8>) {
+fn read_randomly(idx: u16, addr: u64, base_offset: u64, len: usize, expected_byte: u8) {
     let mut rng = rand::thread_rng();
 
     let mut offset = 0;
-    while offset < buffer.len() {
-        let len = std::cmp::min(buffer.len() - offset, rng.gen_range(1..4096));
+    while offset < len {
+        let len = std::cmp::min(len - offset, rng.gen_range(1..4096));
         // let len = 4096;
 
         let start_page = base_offset + offset as u64;
@@ -253,7 +254,7 @@ fn read_randomly(idx: u16, addr: u64, base_offset: u64, buffer: &Vec<u8>) {
             "[{}] READ: offset: {}, len: {}, pages: {}",
             idx, offset, len, pages
         );
-        let slice = &buffer[offset..offset + len];
+        let slice = vec![expected_byte; len];
         let read = read_from_pointer(addr + offset as u64, len);
         // debug!(
         //     "[{}] READ DONE: offset: {}, len: {}, pages: {}",
