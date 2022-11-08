@@ -6,6 +6,7 @@ use std::{
     fs::File,
     os::unix::prelude::{AsRawFd, FromRawFd},
     ptr::{copy_nonoverlapping, null_mut},
+    thread,
 };
 
 use crossbeam_channel::{bounded, Sender};
@@ -198,13 +199,23 @@ fn main() {
 
     let mut threads = vec![];
     // Finally, simultaneously write to VM 0 and read from VM 1
-    threads.push(std::thread::spawn(move || {
-        write_randomly(0, mapping_0_a, 0, size as _, 2);
-    }));
+    threads.push(
+        thread::Builder::new()
+            .name("write_thread".to_string())
+            .spawn(move || {
+                write_randomly(0, mapping_0_a, 0, size as _, 2);
+            })
+            .unwrap(),
+    );
 
-    threads.push(std::thread::spawn(move || {
-        read_randomly(1, mapping_1_a, 0, size as _, 1);
-    }));
+    threads.push(
+        thread::Builder::new()
+            .name("read_thread".to_string())
+            .spawn(move || {
+                read_randomly(1, mapping_1_a, 0, size as _, 1);
+            })
+            .unwrap(),
+    );
 
     for thread in threads {
         thread.join().expect("thread join failed");
