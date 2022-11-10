@@ -239,7 +239,10 @@ pub(crate) fn start_thread() -> Sender<UffdMessage> {
                                         .expect("failed to copy bytes to child using uffd handler")
                                 };
 
-                                child_sources[page_idx as usize] = VmBackend::Vm(*child_vm_idx);
+                                for i in 0..(bytes_copied / 4096) {
+                                    child_sources[page_idx as usize + i] =
+                                        VmBackend::Vm(*child_vm_idx);
+                                }
 
                                 bytes_copied
                             })
